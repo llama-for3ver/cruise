@@ -1,0 +1,5 @@
+// This function allow to reference async chunks
+__webpack_require__.u = function(chunkId) {
+	// return url for filenames based on template
+	return "" + {"228":"objectAssignPolyfill","773":"includesPolyfill"}[chunkId] + "." + {"228":"453e7d8fa4324cdf82d8","773":"af4c7a9a680e146370e4"}[chunkId] + ".js";
+};

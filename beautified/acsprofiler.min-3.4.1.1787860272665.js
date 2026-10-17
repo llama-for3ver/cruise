@@ -1,0 +1,309 @@
+window.acsprofiler=function(a){
+  var l,d=1e4,s,u,c,f,m,g={
+    start:function(e){
+      var n=$.Deferred();
+      u=e.referenceId;
+      c=e.orgUnitId;
+      f=e.origin;
+      m=!!e.ddcDetailedLogging;
+      if(l===undefined){
+        l=new a({
+          domain:e.domain,sessionId:e.referenceId,environment:e.environment,appenders:e.ddcRemoteLogging?[
+            "console","remote"
+          ]
+          :[
+          ]
+        }
+        )
+      }
+      try{
+        if(e.methodUrls!==undefined&&e.methodUrls!=="null"){
+          var t=e.methodUrls;
+          if(t!==undefined&&t.length>0&&t[
+            0
+          ]
+          !==""){
+            l.debug("valid Method URL Profiling settings detected");
+            s=[
+            ];
+            var r=[
+            ];
+            p.listenForCompleted(g.matchMessageWithRunningSession);
+            for(var i=0;
+            i<t.length;
+            i++){
+              var o=t[
+                i
+              ];
+              r.push(g.runMethodUrl(o,e.iframeSecurityConfig))
+            }
+            $.when.apply($,r).then(function(){
+              var e=[
+              ];
+              for(var t=0;
+              t<arguments.length;
+              t++){
+                e.push(arguments[
+                  t
+                ]
+                )
+              }
+              n.resolve(e)
+            }
+            )
+          }
+          else{
+            l.info("Invalid or incomplete configuration data for MethodURL profiling, skipping.");
+            n.resolve()
+          }
+        }
+        else{
+          l.info("ACS profiling isn't needed, marking as completed.");
+          n.resolve()
+        }
+      }
+      catch(e){
+        l.error("Error while attempting to profile browser for ACS: "+e);
+        n.resolve()
+      }
+      return n.promise()
+    },
+    runMethodUrl:function(e,t){
+      if(e.MethodURL!==undefined&&e.MethodURL!==""&&e.MethodURL!=="null"){
+        var n=$.Deferred();
+        var r=(new Date).getTime();
+        var i=setTimeout(function(){
+          l.error("MethodURL ["+e.ThreeDSServerTransactionId+"] timeout detected.");
+          g.markMethodUrlAsTimedOut(n,r,o.appliedAttributes)
+        },
+        d);
+        var o={
+          deferred:n,threeDSServerTransactionId:e.ThreeDSServerTransactionId,timeoutTimer:i,startTime:r,appliedAttributes:[
+          ],
+          iframe:null
+        };
+        s.push(o);
+        var a=e.ThreeDSServerTransactionId;
+        o.appliedAttributes=p.injectIframe(e.MethodURL,e.Payload,a,t);
+        o.iframe=document.getElementById(a);
+        return n
+      }
+      else{
+        return null
+      }
+    },
+    matchMessageWithRunningSession:function(e){
+      if(e!==undefined&&"CompletionNonce"in e&&e.CompletionNonce!==""&&e.CompletionNonce!=="null"){
+        for(var t=0;
+        t<s.length;
+        t++){
+          var n=s[
+            t
+          ];
+          if(n.threeDSServerTransactionId===e.CompletionNonce){
+            var r=g.createResultObject((new Date).getTime()-n.startTime);
+            if("Status"in e&&typeof e.Status==="boolean"){
+              r.Status=e.Status
+            }
+            r.AppliedAttributes=n.appliedAttributes||[
+            ];
+            clearTimeout(n.timeoutTimer);
+            if(m){
+              l.info("nucleus_visibility [MDCW_METHODURL_RECEIVED]"+(f?" origin="+f:"")+" dfReferenceId="+u+" orgUnitId="+c+" binSessionId="+n.threeDSServerTransactionId+" status="+r.Status+" elapsedMs="+r.ElapsedTime+" — JS received and matched the MethodURL completion postMessage.");
+              p.ackMethodUrlComplete(n.threeDSServerTransactionId)
+            }
+            n.deferred.resolve(r);
+            break
+          }
+        }
+      }
+      else{
+        l.warn("invalid data received ["+(typeof e==="object"?JSON.stringify(e,null,4):e)+"]")
+      }
+    },
+    createResultObject:function(e){
+      if(e==undefined||typeof e!=="number"||e<=0){
+        e=-1
+      }
+      return{
+        DataSource:"MethodURL",Status:false,ElapsedTime:e
+      }
+    },
+    markMethodUrlAsTimedOut:function(e,t,n){
+      if(e!==undefined){
+        var r;
+        if(t==undefined||t<0){
+          r=d
+        }
+        else{
+          r=(new Date).getTime()-t
+        }
+        var i=g.createResultObject(r);
+        i.AppliedAttributes=n||[
+        ];
+        e.resolve(i)
+      }
+      else{
+        l.error("Unable to mark MethodURL as timeout, no valid deferred object provided")
+      }
+    },
+    setLogger:function(e){
+      l=e
+    },
+    _testInvokeMessageParser:function(e,t){
+      p.messageParser(e,t)
+    },
+    _testStubGetCurrentDomain:function(e){
+      if(e===null||e===undefined){
+        p.getCurrentDomain=t
+      }
+      else{
+        p.getCurrentDomain=e
+      }
+    },
+    _testSetRunningSessions:function(e){
+      s=e
+    }
+  },
+  t,p={
+    ackMethodUrlComplete:function(e){
+      try{
+        $.ajax({
+          method:"POST",url:"../Browser/Notification",data:{
+            binSessionId:e,referenceId:u,orgUnitId:c,methodUrlAck:true
+          }
+        }
+        )
+      }
+      catch(e){
+        l.error("Failed to send MethodURL ack beacon: "+e)
+      }
+    },
+    getCurrentDomain:function(){
+      if(window.location.origin!==undefined){
+        return window.location.origin
+      }
+      else{
+        return window.location.protocol+"//"+window.location.host
+      }
+    },
+    injectIframe:function(e,t,n,r){
+      var i=document.createElement("iframe"),o=document.createElement("form"),a=document.createElement("input"),d;
+      i.id=n;
+      var s=[
+      ];
+      if(r){
+        try{
+          if(r.methodUrlAllowPayment){
+            i.setAttribute("allow","payment *; publickey-credentials-get *; publickey-credentials-create *");
+            s.push("allow");
+            l.debug("MethodURL iframe: applied allow attribute (Flag A)")
+          }
+          if(r.methodUrlSandboxEnhanced){
+            i.setAttribute("sandbox","allow-forms allow-scripts allow-same-origin allow-pointer-lock allow-popups");
+            s.push("sandbox");
+            l.debug("MethodURL iframe: applied sandbox attribute (Flag B)")
+          }
+        }
+        catch(e){
+          l.error("MethodURL iframe: failed to apply security attributes: "+e);
+          if(!r.errors){
+            r.errors=[
+            ]
+          }
+          r.errors.push({
+            iframeType:"MethodURL",error:String(e),timestamp:(new Date).toISOString()
+          }
+          )
+        }
+      }
+      o.action=e;
+      o.method="POST";
+      l.debug("injecting input info form");
+      o.appendChild(a);
+      a.type="hidden";
+      a.value=t;
+      a.name="threeDSMethodData";
+      l.debug("Injecting iframe");
+      document.body.appendChild(i);
+      d=i.contentDocument||i.contentWindow.document;
+      if(d.body===undefined||d.body===null){
+        d.open();
+        d.write("<body></body>");
+        d.close()
+      }
+      l.debug("Injecting form into iframe");
+      d.body.appendChild(o);
+      l.debug("Submitting Form");
+      o.submit();
+      return s
+    },
+    messageParser:function(t,e){
+      var n;
+      try{
+        if(t!==undefined&&"data"in t){
+          var r=false;
+          for(var i=0;
+          i<s.length;
+          i++){
+            if(s[
+              i
+            ]
+            .iframe&&t.source===s[
+              i
+            ]
+            .iframe.contentWindow){
+              r=true;
+              break
+            }
+          }
+          var o=p.getCurrentDomain();
+          var a=t.origin&&t.origin!=="null"&&t.origin===o;
+          if(a||r){
+            n=JSON.parse(t.data);
+            if(n.Type!=null&&n.Type==="DeviceFingerprinter"){
+              switch(n.Message){
+                case"MethodURL.Complete":l.debug("Received a valid MethodURL.Complete message ["+t.data+"]");
+                e.call(this,n);
+                break;
+                case"MethodURL.Error":l.debug("Received a valid MethodURL.Error message ["+t.data+"]");
+                e.call(this,n);
+                break;
+                default:l.error("Unknown message type ["+n.Message+"]");
+                break
+              }
+            }
+          }
+        }
+      }
+      catch(e){
+        l.debug("Post Message event data ("+t.data+") handling failed with "+e)
+      }
+    },
+    listenForCompleted:function(t){
+      if(p.messageListenerAttached){
+        return
+      }
+      if(window.addEventListener){
+        window.addEventListener("message",function(e){
+          p.messageParser(e,t)
+        },
+        false);
+        p.messageListenerAttached=true
+      }
+      else if(window.attachEvent){
+        window.attachEvent("onmessage",function(e){
+          p.messageParser(e,t)
+        }
+        );
+        p.messageListenerAttached=true
+      }
+      else{
+        l.error("unable to bind postMessage event to window on user agent: "+window.navigator.userAgent)
+      }
+    }
+  };
+  t=p.getCurrentDomain;
+  return g
+}
+(window.Logger);
